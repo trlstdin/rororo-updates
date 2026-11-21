@@ -1,5 +1,8 @@
 name: Synchronize verified private releases
 on:
+  push:
+    branches: [main]
+    paths: [publisher.py, .github/workflows/publish.yml]
   schedule:
     - cron: '3-58/5 * * * *'
   workflow_dispatch:
