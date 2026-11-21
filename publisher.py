@@ -10,6 +10,7 @@ TARGETS = {'win10-x64', 'win11-x64', 'linux-x64-cloud'}
 PUBLIC = os.environ['PUBLIC_REPOSITORY']
 
 def run(*args, cwd=None, data=None):
+    print("Publisher step: "+" ".join(str(x) for x in args[:2]),flush=True)
     p = subprocess.run(args, cwd=cwd, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if p.returncode:
         # Do not print invocation environments, SSH credentials or private source.
@@ -149,8 +150,17 @@ def main():
                 match=re.fullmatch(r'version https://git-lfs.github.com/spec/v1\r?\noid sha256:([a-f0-9]{64})\r?\nsize ([1-9][0-9]*)\r?\n?',pointer)
                 if not match:raise ValueError('Invalid package LFS pointer')
                 digest,size=match.groups()
-                run('git','lfs','fetch','--include='+namepath,'--exclude=','origin',commit,cwd=source)
-                objectfile=source/'.git/lfs/objects'/digest[:2]/digest[2:4]/digest
+                # Download only this verified pointer. A ref-wide LFS fetch in a
+                # partial clone may trigger lazy reads of unrelated tree blobs.
+                print('Downloading exact LFS package: '+name,flush=True)
+                objectfile=work/('artifact-'+digest)
+                transfer_env=os.environ.copy();transfer_env.pop('GIT_LFS_SKIP_SMUDGE',None)
+                with objectfile.open('wb') as target_file:
+                    transfer=subprocess.run(['git','lfs','smudge',namepath],cwd=source,
+                        input=pointer.encode(),stdout=target_file,stderr=subprocess.PIPE,env=transfer_env)
+                if transfer.returncode:
+                    raise RuntimeError('Exact package LFS download failed with exit '+str(transfer.returncode))
+                print('Downloaded exact LFS package; checking complete bytes',flush=True)
                 if objectfile.stat().st_size!=int(size) or sha256(objectfile)!=digest:raise ValueError('Package digest mismatch')
                 if int(size)>=2*1024**3:raise ValueError('Package exceeds GitHub release asset size limit')
                 source_commit=verify_package(objectfile,v,target,source,commit)
