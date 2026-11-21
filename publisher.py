@@ -13,7 +13,9 @@ def run(*args, cwd=None, data=None):
     p = subprocess.run(args, cwd=cwd, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if p.returncode:
         # Do not print invocation environments, SSH credentials or private source.
-        raise RuntimeError(f'{args[0]} failed with exit {p.returncode}')
+        details=p.stderr.decode('utf-8','replace')
+        category=next((label for label in ['error in libcrypto','invalid format','Permission denied','Host key verification failed','Repository not found','Could not resolve','Connection refused','Connection timed out'] if label in details),'command error')
+        raise RuntimeError(f'{args[0]} failed with exit {p.returncode}: {category}')
     return p.stdout
 
 def api(route, body=None):
@@ -78,8 +80,8 @@ def verify_package(file, v, target, source, release_sha):
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
-        work=Path(tmp); key=work/'source-key'; key.write_text(os.environ.pop('SOURCE_DEPLOY_KEY')); key.chmod(0o600)
-        signing=work/'signing.pem'; signing.write_text(os.environ.pop('CHANNEL_SIGNING_KEY')); signing.chmod(0o600)
+        work=Path(tmp); key=work/'source-key'; key.write_text(os.environ.pop('SOURCE_DEPLOY_KEY').replace('\r\n','\n').strip()+'\n'); key.chmod(0o600)
+        signing=work/'signing.pem'; signing.write_text(os.environ.pop('CHANNEL_SIGNING_KEY').replace('\r\n','\n').strip()+'\n'); signing.chmod(0o600)
         # Ubuntu hosted runners contain GitHub host keys. Fetch official published keys
         # over verified HTTPS instead of blindly trusting ssh-keyscan output.
         meta=api('meta'); known=work/'known_hosts'
