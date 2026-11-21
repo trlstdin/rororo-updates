@@ -38,7 +38,9 @@ def sha256(file):
 def verify_package(file, v, target, source, release_sha):
     if target == 'linux-x64-cloud':
         archive=tarfile.open(file)
-        entries={m.name:m for m in archive if not m.isdir()}
+        members=[m for m in archive if not m.isdir()]
+        entries={m.name:m for m in members}
+        if len(entries)!=len(members):raise ValueError('Duplicate archive entries')
         if any(not m.isfile() for m in entries.values()): raise ValueError('Archive links or special files refused')
         read=lambda n: archive.extractfile(entries[n]).read()
         prefix='release/app/'
@@ -61,9 +63,11 @@ def verify_package(file, v, target, source, release_sha):
     if json.loads(read('build-info.json')) != {'version':v,'target':target}: raise ValueError('Package platform/version mismatch')
     meta=json.loads(read(metadata)); commit=meta['sourceCommit']
     if not re.fullmatch('[a-f0-9]{40}',commit): raise ValueError('Invalid source commit')
+    if meta.get('credentialsIncluded') is True or meta.get('privateStateIncluded') is True:raise ValueError('Private state declared in distribution')
     if meta.get('version')!=v or meta.get('target')!=target: raise ValueError('Package metadata mismatch')
     if json.loads(read(prefix+'package.json'))['version']!=v: raise ValueError('Application version mismatch')
     run('git','fetch','--filter=blob:none','origin',commit,cwd=source)
+    run('git','diff','--exit-code',commit,release_sha,'--','src','desktop','launchers','cloud','package-lock.json',cwd=source)
     raw=run('git','archive',commit,'src','desktop','launchers','cloud',cwd=source)
     with tarfile.open(fileobj=io.BytesIO(raw)) as tree:
         expected={m.name:tree.extractfile(m).read() for m in tree if m.isfile()}
