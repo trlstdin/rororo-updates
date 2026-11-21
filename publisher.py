@@ -77,9 +77,22 @@ def verify_package(file, v, target, source, release_sha):
     if json.loads(read(prefix+'package.json'))['version']!=v: raise ValueError('Application version mismatch')
     run('git','fetch','--filter=blob:none','origin',commit,cwd=source)
     run('git','diff','--exit-code',commit,release_sha,'--','src','desktop','launchers','cloud','package-lock.json',cwd=source)
-    raw=run('git','archive',commit,'src','desktop','launchers','cloud',cwd=source)
-    with tarfile.open(fileobj=io.BytesIO(raw)) as tree:
-        expected={m.name:tree.extractfile(m).read() for m in tree if m.isfile()}
+    # git archive applies export/EOL attributes; compare canonical committed blobs.
+    records=run('git','ls-tree','-r','-z',commit,'--','src','desktop','launchers','cloud',cwd=source).split(b'\0')
+    entries_to_read=[]
+    for record in records:
+        if not record:continue
+        header,name=record.split(b'\t',1);mode,kind,oid=header.split()
+        if kind!=b'blob' or mode not in (b'100644',b'100755'):raise ValueError('Unsupported source tree entry')
+        entries_to_read.append((name.decode('utf-8'),oid))
+    stream=io.BytesIO(run('git','cat-file','--batch',cwd=source,data=b''.join(oid+b'\n' for _,oid in entries_to_read)))
+    expected={}
+    for name,oid in entries_to_read:
+        actual_oid,kind,size=stream.readline().rstrip(b'\n').split()
+        if actual_oid!=oid or kind!=b'blob':raise ValueError('Frozen source blob mismatch')
+        content=stream.read(int(size))
+        if len(content)!=int(size) or stream.read(1)!=b'\n':raise ValueError('Incomplete frozen source blob')
+        expected[name]=content
     if target=='linux-x64-cloud':
         expected['src/pro/desktop-lifecycle.cjs']=expected['src/pro/client-lifecycle.cjs']
         expected['src/pro/client-lifecycle.cjs']=expected['cloud/client-lifecycle.cjs']
