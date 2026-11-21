@@ -35,6 +35,15 @@ def sha256(file):
         for b in iter(lambda:f.read(1024*1024),b''): h.update(b)
     return h.hexdigest()
 
+def block_index(file):
+    # Same content-defined boundaries as the client's existing block cache.
+    # This is production release metadata generation, not application execution.
+    program=r"""const fs=require('fs'),crypto=require('crypto');
+const gear=new Uint32Array(256);let seed=0x51a7c3d9;for(let i=0;i<256;i++){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;gear[i]=seed>>>0;}
+(async()=>{let offset=0n,length=0,hash=0,parts=[];const blocks=[],whole=crypto.createHash('sha256');function finish(){if(!length)return;const bytes=Buffer.concat(parts,length);blocks.push({offset:String(offset),size:String(length),sha256:crypto.createHash('sha256').update(bytes).digest('hex')});offset+=BigInt(length);length=0;hash=0;parts=[];}
+for await(const input of fs.createReadStream(process.argv[1])){whole.update(input);let start=0;for(let i=0;i<input.length;i++){hash=((hash<<1)+gear[input[i]])>>>0;length++;if(length>=65536&&((hash&0xfffff)===0||length>=4194304)){parts.push(input.subarray(start,i+1));finish();start=i+1;}}if(start<input.length)parts.push(input.subarray(start));}finish();console.log(JSON.stringify({schema:1,size:String(offset),sha256:whole.digest('hex'),blocks}));})().catch(()=>process.exit(1));"""
+    return json.loads(run('node','-e',program,str(file)))
+
 def verify_package(file, v, target, source, release_sha):
     if target == 'linux-x64-cloud':
         archive=tarfile.open(file)
@@ -133,7 +142,9 @@ def main():
                 if int(size)>=2*1024**3:raise ValueError('Package exceeds GitHub release asset size limit')
                 source_commit=verify_package(objectfile,v,target,source,commit)
                 package=work/name;os.link(objectfile,package);artifacts.append(package)
-                current.append(dict(version=v,target=target,sha=commit,sha256=digest,size=size,url=f'https://github.com/{PUBLIC}/releases/download/{tag}/{name}'))
+                index=block_index(package)
+                if index['sha256']!=digest or index['size']!=size:raise ValueError('Block index identity differs')
+                current.append(dict(version=v,target=target,sha=commit,sha256=digest,size=size,url=f'https://github.com/{PUBLIC}/releases/download/{tag}/{name}',blocks=index))
             receipt=work/'verified-release.json';receipt.write_text(json.dumps({'schema':1,'sourceRefSha':commit,'releases':current},sort_keys=True));artifacts.append(receipt)
             if not old:run('gh','release','create',tag,'--repo',PUBLIC,'--draft','--title',v,'--notes','Verified distribution archives. Private source repository is not published.')
             # Draft assets are retryable. Published releases are never overwritten.
