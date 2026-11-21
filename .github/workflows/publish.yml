@@ -1,0 +1,25 @@
+name: Synchronize verified private releases
+on:
+  schedule:
+    - cron: '3-58/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-channel
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify packages and publish atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_DEPLOY_KEY: ${{ secrets.SOURCE_DEPLOY_KEY }}
+          CHANNEL_SIGNING_KEY: ${{ secrets.CHANNEL_SIGNING_KEY }}
+          PUBLIC_REPOSITORY: ${{ github.repository }}
+        run: python3 publisher.py
