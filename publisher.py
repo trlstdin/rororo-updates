@@ -159,10 +159,10 @@ def main():
                 if index['sha256']!=digest or index['size']!=size:raise ValueError('Block index identity differs')
                 current.append(dict(version=v,target=target,sha=commit,sha256=digest,size=size,url=f'https://github.com/{PUBLIC}/releases/download/{tag}/{name}',blocks=index))
             receipt=work/'verified-release.json';receipt.write_text(json.dumps({'schema':1,'sourceRefSha':commit,'releases':current},sort_keys=True));artifacts.append(receipt)
-            if not old:run('gh','release','create',tag,'--repo',PUBLIC,'--draft','--title',v,'--notes','Verified distribution archives. Private source repository is not published.')
+            if not old:old=api(f'repos/{PUBLIC}/releases',{'tag_name':tag,'draft':True,'name':v,'body':'Verified distribution archives. Private source repository is not published.'})
             # Draft assets are retryable. Published releases are never overwritten.
             run('gh','release','upload',tag,*map(str,artifacts),'--repo',PUBLIC,'--clobber')
-            assets=api(f'repos/{PUBLIC}/releases/tags/{tag}')['assets']
+            assets=api(f"repos/{PUBLIC}/releases/{old['id']}")['assets']
             for file in artifacts:
                 asset=next(a for a in assets if a['name']==file.name)
                 if asset['size']!=file.stat().st_size or asset.get('digest')!='sha256:'+sha256(file):raise ValueError('Uploaded asset verification failed')
