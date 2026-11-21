@@ -77,8 +77,12 @@ def verify_package(file, v, target, source, release_sha):
     expected={n:b for n,b in expected.items() if n.split('/')[0] in {'src','desktop','launchers'}}
     actual={n[len(prefix):]:read(n) for n in entries if n.startswith(prefix) and n[len(prefix):].split('/')[0] in {'src','desktop','launchers'}}
     if expected!=actual: raise ValueError('Packaged application differs from frozen source')
-    for n in ('package-lock.json',):
-        if read(prefix+n)!=run('git','show',commit+':'+n,cwd=source): raise ValueError('Package lock differs from source')
+    for n in ('package.json','package-lock.json'):
+        expected_json=json.loads(run('git','show',commit+':'+n,cwd=source))
+        expected_json['version']=v
+        if n=='package-lock.json':expected_json['packages']['']['version']=v
+        if json.loads(read(prefix+n))!=expected_json:raise ValueError('Package dependency declarations differ from source')
+    if read(prefix+'update-source.json')!=run('git','show',commit+':update-source.json',cwd=source):raise ValueError('Packaged update trust configuration differs from source')
     archive.close()
     return commit
 
